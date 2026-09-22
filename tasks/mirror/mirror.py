@@ -2,7 +2,7 @@ import re
 import time
 from time import sleep
 
-from module import floor_diag
+from module import diag
 from module.automation import auto
 from module.config import TeamSetting, cfg
 from module.decorator.decorator import begin_and_finish_time_log
@@ -1596,7 +1596,7 @@ class Mirror:
                 threshold=FLOOR_MARK_THRESHOLD,
                 min_dist=int(80 * scale),
             )
-            floor_diag.capture(
+            diag.capture_floor(
                 "clear", "mirror/road_in_mir/clear_floor.png", FLOOR_MARK_THRESHOLD, 80 * scale, clear_floors
             )
             if clear_floors:
@@ -1610,7 +1610,7 @@ class Mirror:
                     threshold=FLOOR_MARK_THRESHOLD,
                     min_dist=int(80 * scale),
                 )
-                floor_diag.capture(
+                diag.capture_floor(
                     "not_passed",
                     "mirror/road_in_mir/not_passed_floor.png",
                     FLOOR_MARK_THRESHOLD,

@@ -17,6 +17,7 @@ from utils.image_utils import ImageUtils
 from utils.path_manager import path_manager
 from utils.singletonmeta import SingletonMeta
 
+from .. import diag
 from ..config import cfg
 from ..logger import log
 from ..ocr import ocr
@@ -462,6 +463,7 @@ class Automation(metaclass=SingletonMeta):
                         self._reset_frame_cache(result)
                         self._frame_dirty = False
                         self.last_screenshot_time = now
+                        diag.record_frame(self._screenshot_array)
                         return result
                     return None
             except Exception as e:

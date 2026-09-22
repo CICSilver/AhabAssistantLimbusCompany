@@ -3,6 +3,7 @@ from time import sleep
 
 from PIL import Image
 
+from module import diag
 from module.automation import auto
 from module.config import TeamSetting, cfg
 from module.logger import log
@@ -101,6 +102,8 @@ class Shop:
                 raise self.RestartGame()
             if not auto.find_element("mirror/shop/power_up_confirm_assets.png"):
                 return True
+        # 超时现场：帧缓冲会带出点击前后的完整序列
+        diag.snap("powerup_timeout", note=f"确认窗口 {timeout}s 未关闭")
         log.warning("饰品升级确认窗口长时间未关闭，停止本次升级以避免重复扣费")
         return False
 
@@ -114,11 +117,14 @@ class Shop:
             auto.mouse_to_blank()
             if auto.click_element("mirror/shop/power_up_assets.png"):
                 auto.mouse_to_blank()
-                if not auto.wait_for_element(
+                clicked_confirm = auto.wait_for_element(
                     "mirror/shop/power_up_confirm_assets.png",
                     timeout=1.5,
                     click=True,
-                ):
+                )
+                # 点击确认的那一帧：三次失败的点击前相似度都不是 1.00，需要看清差异
+                diag.snap("powerup_confirm_click", note=f"wait_for_element 返回 {clicked_confirm}")
+                if not clicked_confirm:
                     return True
                 if self._wait_for_power_up_confirmation() is False:
                     return False

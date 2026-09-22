@@ -11,6 +11,7 @@ from PySide6.QtCore import QT_TRANSLATE_NOOP, QMutex, QThread
 
 from app import mediator
 from app.windows_toast import TemplateToast, send_toast
+from module import diag
 from module.automation import auto
 from module.config import TeamSetting, cfg
 from module.decorator.decorator import begin_and_finish_time_log
@@ -454,6 +455,7 @@ class my_script_task(QThread):
     def __init__(self):
         # 初始化，构造函数
         super().__init__()
+        diag.install()
         reset_stop_request()
         self.mutex = QMutex()
 
