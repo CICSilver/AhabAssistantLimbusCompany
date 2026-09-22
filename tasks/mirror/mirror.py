@@ -4,6 +4,7 @@ from time import sleep
 
 from module.automation import auto
 from module.config import TeamSetting, cfg
+from module import floor_diag
 from module.decorator.decorator import begin_and_finish_time_log
 from module.logger import log
 from module.my_error.my_error import (
@@ -1588,6 +1589,9 @@ class Mirror:
                 take_screenshot=True,
                 min_dist=80 * scale,
             )
+            floor_diag.capture(
+                "clear", "mirror/road_in_mir/clear_floor.png", 0.8, 80 * scale, clear_floors
+            )
             if clear_floors:
                 self.floor = len(clear_floors) + 1
                 log.debug(f"当前镜牢层数: {self.floor}")
@@ -1599,6 +1603,13 @@ class Mirror:
                     find_type="image_with_multiple_targets",
                     take_screenshot=True,
                     min_dist=80 * scale,
+                )
+                floor_diag.capture(
+                    "not_passed",
+                    "mirror/road_in_mir/not_passed_floor.png",
+                    0.8,
+                    80 * scale,
+                    not_passed_floors,
                 )
                 if not_passed_floors:
                     self.floor = 5 - len(not_passed_floors)
