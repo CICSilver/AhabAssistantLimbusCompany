@@ -20,6 +20,7 @@ from utils.singletonmeta import SingletonMeta
 from ..config import cfg
 from ..logger import log
 from ..ocr import ocr
+from ..task_control import raise_if_stop_requested
 from .input_handlers.input import AbstractInput
 from .screenshot import ScreenShot
 
@@ -64,6 +65,7 @@ class Automation(metaclass=SingletonMeta):
         self._last_memory_check_time = 0.0
         self._unavailable_feature_templates: set[str] = set()
         self.last_screenshot_time = 0
+        self._last_capture_attempt = 0
         self.last_click_time = 0
         self.model = "clam"
 
@@ -178,8 +180,11 @@ class Automation(metaclass=SingletonMeta):
         """
         def wrapper(*args, **kwargs):
             while True:
+                raise_if_stop_requested()
                 gate_open = self._interaction_gate.wait(timeout=GATE_WAIT_TIMEOUT)
+                raise_if_stop_requested()
                 with self._input_lock:
+                    raise_if_stop_requested()
                     if gate_open and self._interaction_gate.is_set():
                         return self._run_input_and_mark_frame_dirty(method_name, *args, **kwargs)
                     if not gate_open:
@@ -194,6 +199,7 @@ class Automation(metaclass=SingletonMeta):
     def monitor_mouse_click(self, x, y, times=1):
         """由系统监控线程点击，不等待该监控线程设置的互斥门。"""
         with self._input_lock:
+            raise_if_stop_requested()
             return self._run_input_and_mark_frame_dirty("mouse_click", x, y, times=times)
 
     def _remember_screenshot(self, screenshot: Image | None) -> None:
@@ -436,25 +442,33 @@ class Automation(metaclass=SingletonMeta):
         configured_interval = cfg.screenshot_interval if cfg.screenshot_interval else 0.15
         screenshot_interval_time = configured_interval if interval is None else max(0.0, float(interval))
         while True:
+            raise_if_stop_requested()
             try:
-                elapsed = time.monotonic() - self.last_screenshot_time
+                elapsed = time.monotonic() - self._last_capture_attempt
                 if elapsed < screenshot_interval_time:
                     time.sleep(screenshot_interval_time - elapsed)
 
                 # 与输入使用相同的加锁顺序，避免截图完成后、提交干净帧前被监控线程点击。
                 with self._input_lock, self._screenshot_lock:
+                    raise_if_stop_requested()
                     result = ScreenShot.take_screenshot(gray)
                     self._remember_screenshot(result)
+                    # 失败的截图同样计入限速间隔，避免设备未连接时形成无延迟死循环并刷满日志；
+                    # 但 last_screenshot_time 只在成功时前移，否则旧帧会被 can_reuse_current_frame 误判为新鲜。
+                    now = time.monotonic()
+                    self._last_capture_attempt = now
                     if result:
                         self.screenshot = result
                         self._reset_frame_cache(result)
                         self._frame_dirty = False
-                        self.last_screenshot_time = time.monotonic()
+                        self.last_screenshot_time = now
                         return result
                     return None
             except Exception as e:
+                raise_if_stop_requested()
                 log.error(f"截图失败:{e}")
             time.sleep(1)
+            raise_if_stop_requested()
             if time.monotonic() - start_time > 60:
                 log.error("截图超时，尝试重启游戏")
                 import os
@@ -466,7 +480,7 @@ class Automation(metaclass=SingletonMeta):
                 try:
                     _, pid = win32process.GetWindowThreadProcessId(screen.handle.hwnd)
                     os.system(f"taskkill /F /PID {pid}")
-                except:
+                except Exception:
                     pass
                 from tasks.base.script_task_scheme import init_game
 

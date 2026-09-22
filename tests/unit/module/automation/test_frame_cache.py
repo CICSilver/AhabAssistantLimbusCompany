@@ -22,6 +22,7 @@ def _make_automation(image):
     instance.img_cache = {}
     instance.memory_protection = False
     instance._last_memory_check_time = 0.0
+    instance._last_capture_attempt = 0.0
     instance.model = "clam"
     instance._reset_frame_cache(image)
     return instance
@@ -141,6 +142,7 @@ def test_screenshot_call_can_use_a_short_local_interval_without_changing_config(
     image = Image.fromarray(np.zeros((4, 4), dtype=np.uint8))
     instance = _make_automation(image)
     instance.last_screenshot_time = 9.9
+    instance._last_capture_attempt = 9.9
     sleeps = []
     configured_interval = automation_module.cfg.screenshot_interval
 
@@ -153,6 +155,26 @@ def test_screenshot_call_can_use_a_short_local_interval_without_changing_config(
     assert sleeps == [pytest.approx(0.15)]
     assert automation_module.cfg.screenshot_interval == configured_interval
     assert instance.can_reuse_current_frame()
+
+
+def test_failed_capture_advances_rate_limit_but_not_frame_freshness(monkeypatch):
+    """截图失败要计入限速间隔(避免断连时空转)，但不能前移帧新鲜度时间戳。"""
+    image = Image.fromarray(np.zeros((4, 4), dtype=np.uint8))
+    instance = _make_automation(image)
+    instance._frame_dirty = False
+    instance.last_screenshot_time = 9.9
+    instance._last_capture_attempt = 9.9
+
+    times = iter([10.0, 10.0, 10.5, 10.5, 10.5])
+    monkeypatch.setattr(automation_module.time, "monotonic", lambda: next(times))
+    monkeypatch.setattr(automation_module.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(automation_module.ScreenShot, "take_screenshot", lambda gray: None)
+
+    assert instance.take_screenshot(interval=0.0) is None
+    # 限速时间戳前移，下一轮不会无延迟空转
+    assert instance._last_capture_attempt == 10.5
+    # 帧新鲜度时间戳保持不变，旧帧不会被当成刚拍的
+    assert instance.last_screenshot_time == 9.9
 
 
 def test_successful_business_input_invalidates_business_and_monitor_frames():
