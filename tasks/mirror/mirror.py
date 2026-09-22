@@ -2,9 +2,9 @@ import re
 import time
 from time import sleep
 
+from module import floor_diag
 from module.automation import auto
 from module.config import TeamSetting, cfg
-from module import floor_diag
 from module.decorator.decorator import begin_and_finish_time_log
 from module.logger import log
 from module.my_error.my_error import (
@@ -41,6 +41,11 @@ def to_log_with_time(msg, elapsed_time):
     minutes, seconds = divmod(remainder, 60)
     time_string = f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}"
     log.info(f"{msg} 总耗时:{time_string}")
+
+
+# 楼层标记放大匹配的判定阈值。实测各槽位真实分 0.82~0.94、最高误判 0.61，
+# 取 0.70 使两侧余量分别为 +0.12 / -0.25。
+FLOOR_MARK_THRESHOLD = 0.70
 
 
 class Mirror:
@@ -1582,15 +1587,17 @@ class Mirror:
         if auto.find_element(
             "mirror/road_in_mir/to_window_assets.png", threshold=0.75, take_screenshot=True
         ):
-            # 每个 CLEAR 标记代表一层已通关，因此当前层数为标记数加一
-            clear_floors = auto.find_element(
+            # 每个 CLEAR 标记代表一层已通关，因此当前层数为标记数加一。
+            # CLEAR 标记模板仅 35x13，按 set_win_size 缩小后会因亚像素相位差漏检，
+            # 故改用放大匹配（见 find_multiple_targets_upscaled 的说明）。
+            auto.take_screenshot()
+            clear_floors = auto.find_multiple_targets_upscaled(
                 "mirror/road_in_mir/clear_floor.png",
-                find_type="image_with_multiple_targets",
-                take_screenshot=True,
-                min_dist=80 * scale,
+                threshold=FLOOR_MARK_THRESHOLD,
+                min_dist=int(80 * scale),
             )
             floor_diag.capture(
-                "clear", "mirror/road_in_mir/clear_floor.png", 0.8, 80 * scale, clear_floors
+                "clear", "mirror/road_in_mir/clear_floor.png", FLOOR_MARK_THRESHOLD, 80 * scale, clear_floors
             )
             if clear_floors:
                 self.floor = len(clear_floors) + 1
@@ -1598,16 +1605,15 @@ class Mirror:
                 self.mirror_map.refresh_floor(self.floor)
             else:
                 # CLEAR 识别失败时回退到历史的未通关楼层模板。
-                not_passed_floors = auto.find_element(
+                not_passed_floors = auto.find_multiple_targets_upscaled(
                     "mirror/road_in_mir/not_passed_floor.png",
-                    find_type="image_with_multiple_targets",
-                    take_screenshot=True,
-                    min_dist=80 * scale,
+                    threshold=FLOOR_MARK_THRESHOLD,
+                    min_dist=int(80 * scale),
                 )
                 floor_diag.capture(
                     "not_passed",
                     "mirror/road_in_mir/not_passed_floor.png",
-                    0.8,
+                    FLOOR_MARK_THRESHOLD,
                     80 * scale,
                     not_passed_floors,
                 )

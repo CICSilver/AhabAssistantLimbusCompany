@@ -769,6 +769,54 @@ class Automation(metaclass=SingletonMeta):
             log.error(f"寻找图片出错:{e}")
             return []
 
+    def find_multiple_targets_upscaled(
+        self, target: str, threshold: float = 0.7, min_dist: int = 10, upscale: int = 2, additional_stack: int = 0
+    ) -> List:
+        """小模板专用的多目标匹配：双方同步放大后再匹配。
+
+        常规 find_image_with_multiple_targets 会把模板按 set_win_size 缩小去适配截图。
+        对 26x10 这种小模板，缩放后已无余量吸收亚像素相位差：镜牢楼层 CLEAR 标记的
+        槽位间距为非整数（1080p 下约 105.7px），各标记落在不同相位上，而 matchTemplate
+        只在整数像素位求相关，实测最差槽位只有 0.73 分，低于 0.8 阈值而被漏检。
+
+        这里改为：模板从原生尺寸放大、截图放大同样倍数，使匹配发生在更细的像素栅格上，
+        最坏对齐误差减半，且模板不再因降采样丢失笔画细节。坐标按倍数换算回原截图空间。
+        """
+        try:
+            template = ImageUtils.load_image(target, resize=False)
+            if not self._is_usable_image(template):
+                log.error(f"未找到图片： {target} ")
+                return []
+            screenshot = self.get_screenshot_array()
+            if not self._is_usable_image(screenshot):
+                return []
+
+            # 模板按 1440 基准制作；两者统一放大到 set_win_size * upscale
+            template_scale = cfg.set_win_size * upscale / 1440
+            cache_key = ("upscaled_template", target, round(template_scale, 4))
+            scaled_template = self.img_cache.get(cache_key)
+            if scaled_template is None:
+                scaled_template = cv2.resize(
+                    template, None, fx=template_scale, fy=template_scale, interpolation=cv2.INTER_LINEAR
+                )
+                self.img_cache[cache_key] = scaled_template
+            scaled_screenshot = cv2.resize(
+                screenshot, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_LINEAR
+            )
+
+            matches = ImageUtils.match_template_with_multiple_targets(
+                scaled_screenshot, scaled_template, threshold, min_dist=min_dist * upscale
+            )
+            matches = [(int(x / upscale), int(y / upscale)) for x, y in matches]
+            if not matches:
+                log.debug(f"未找到任何目标图像{target}（放大匹配）", stacklevel=additional_stack + 3)
+                return []
+            log.debug(f"找到{len(matches)}个目标（放大匹配）：{matches}", stacklevel=additional_stack + 3)
+            return matches
+        except Exception as e:
+            log.error(f"放大匹配图片出错:{e}")
+            return []
+
     def find_str_in_text(self, target, ocr_dict):
         """
         返回目标文本的坐标
