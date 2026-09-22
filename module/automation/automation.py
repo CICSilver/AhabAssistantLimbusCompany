@@ -62,6 +62,7 @@ class Automation(metaclass=SingletonMeta):
         self._frame_match_cache = {}
         self._frame_ocr_cache = {}
         self._last_memory_check_time = 0.0
+        self._unavailable_feature_templates: set[str] = set()
         self.last_screenshot_time = 0
         self.last_click_time = 0
         self.model = "clam"
@@ -898,13 +899,23 @@ class Automation(metaclass=SingletonMeta):
 
         return ocr_text_list
 
+    @staticmethod
+    def _is_usable_image(image) -> bool:
+        """截图或模板为空时跳过匹配，避免 OpenCV 因空输入抛异常。"""
+        return isinstance(image, np.ndarray) and image.size > 0 and image.ndim >= 2 and 0 not in image.shape[:2]
+
     def _prepare_feature_target(self, pic_crop=None):
         """将目标区域统一到 1440p 模板坐标，并只提取一次特征。"""
         normalize_scale = 1440 / cfg.set_win_size
 
         if pic_crop:
             # 节点区域通常只占屏幕约 1%，先裁剪可避免每个候选节点都缩放整张 4K 截图。
-            screenshot = ImageUtils.crop(self.get_screenshot_array(), pic_crop)
+            base = self.get_screenshot_array()
+            if not self._is_usable_image(base):
+                return None
+            screenshot = ImageUtils.crop(base, pic_crop)
+            if not self._is_usable_image(screenshot):
+                return None
             if not math.isclose(normalize_scale, 1.0):
                 normalized_crop = [int(i * normalize_scale) for i in pic_crop]
                 target_width = max(1, normalized_crop[2] - normalized_crop[0])
@@ -917,6 +928,8 @@ class Automation(metaclass=SingletonMeta):
             return ImageUtils.extract_orb_features(screenshot)
 
         screenshot = self.get_screenshot_array()
+        if not self._is_usable_image(screenshot):
+            return None
         if not math.isclose(normalize_scale, 1.0):
             screenshot = cv2.resize(
                 screenshot,
@@ -929,8 +942,12 @@ class Automation(metaclass=SingletonMeta):
 
     def _load_cached_feature_template(self, target: str):
         """按当前主题/语言缓存模板 ORB 特征；图片缓存刷新时会一并失效。"""
+        if target in self._unavailable_feature_templates:
+            return None
+
         existing_paths = ImageUtils.existing_image_paths(target)
         if not existing_paths:
+            self._unavailable_feature_templates.add(target)
             return None
         target_path = existing_paths[0]
         cache_key = ("orb_feature", target, target_path)
@@ -939,7 +956,8 @@ class Automation(metaclass=SingletonMeta):
             return cached
 
         template = ImageUtils.load_from_specific_path(target, target_path, resize=False)
-        if template is None:
+        if not self._is_usable_image(template):
+            self._unavailable_feature_templates.add(target)
             return None
         features = ImageUtils.extract_orb_features(template)
         self.img_cache[cache_key] = features
@@ -949,6 +967,8 @@ class Automation(metaclass=SingletonMeta):
         """按顺序匹配多个特征模板，并复用同一份截图特征。"""
         try:
             target_features = self._prepare_feature_target(pic_crop)
+            if target_features is None:
+                return None
             for target, min_matches in targets:
                 template_features = self._load_cached_feature_template(target)
                 if template_features is None:
@@ -982,6 +1002,7 @@ class Automation(metaclass=SingletonMeta):
         """清除图片缓存"""
         self.img_cache.clear()
         getattr(self, "_frame_match_cache", {}).clear()
+        self._unavailable_feature_templates.clear()
         gc.collect()  # 强制垃圾回收，清理内存
         log.debug("图片缓存已清除", stacklevel=2)
 

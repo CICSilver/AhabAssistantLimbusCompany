@@ -215,7 +215,7 @@ class SettingInterface(QWidget):
             config_name="simulator_host",
             content=QT_TRANSLATE_NOOP(
                 "PushSettingCardText",
-                "模拟器的 ADB 主机名/IP，无特殊情况保持默认即可；远程连接时填写远程设备地址",
+                "模拟器的 ADB 主机名/IP，除非你知道你在做什么，否则保持默认即可",
             ),
             validator=normalize_adb_host,
             parent=self.simulator_setting_group,

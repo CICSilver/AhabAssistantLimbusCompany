@@ -253,7 +253,7 @@ class Mirror:
                 break
 
             # 离开镜牢的设置页面
-            if to_window_position := auto.find_element("mirror/road_in_mir/to_window_assets.png"):
+            if to_window_position := auto.find_element("mirror/road_in_mir/to_window_assets.png", threshold=0.75):
                 auto.mouse_click(to_window_position[0] - 200 * cfg.set_win_size / 1440, to_window_position[1])
                 continue
 
@@ -502,6 +502,8 @@ class Mirror:
             # 自动截图
             if auto.take_screenshot() is None:
                 auto.mouse_to_blank()
+                continue
+            if auto.find_element("base/waiting_assets.png") or auto.find_element("base/waiting_2_assets.png"):
                 continue
             if (
                 not auto.find_element("mirror/claim_reward/complete_mirror_100%_assets.png")
@@ -1134,7 +1136,7 @@ class Mirror:
                 break
             if auto.click_element("mirror/road_in_mir/towindow&forfeit_confirm_assets.png"):
                 break
-            if auto.click_element("mirror/road_in_mir/to_window_assets.png"):
+            if auto.click_element("mirror/road_in_mir/to_window_assets.png", threshold=0.75):
                 continue
             if auto.click_element("mirror/road_in_mir/setting_assets.png"):
                 sleep(1)
@@ -1580,16 +1582,30 @@ class Mirror:
             "mirror/road_in_mir/to_window_assets.png", threshold=0.75, take_screenshot=True
         ):
             # 每个 CLEAR 标记代表一层已通关，因此当前层数为标记数加一
-            self.floor = len(
-                auto.find_element(
-                    "mirror/road_in_mir/clear_floor.png",
+            clear_floors = auto.find_element(
+                "mirror/road_in_mir/clear_floor.png",
+                find_type="image_with_multiple_targets",
+                take_screenshot=True,
+                min_dist=80 * scale,
+            )
+            if clear_floors:
+                self.floor = len(clear_floors) + 1
+                log.debug(f"当前镜牢层数: {self.floor}")
+                self.mirror_map.refresh_floor(self.floor)
+            else:
+                # CLEAR 识别失败时回退到历史的未通关楼层模板。
+                not_passed_floors = auto.find_element(
+                    "mirror/road_in_mir/not_passed_floor.png",
                     find_type="image_with_multiple_targets",
                     take_screenshot=True,
                     min_dist=80 * scale,
                 )
-            ) + 1
-            log.debug(f"当前镜牢层数: {self.floor}")
-            self.mirror_map.refresh_floor(self.floor)
+                if not_passed_floors:
+                    self.floor = 5 - len(not_passed_floors)
+                    log.debug(f"当前镜牢层数: {self.floor}（使用未通关楼层兜底识别）")
+                    self.mirror_map.refresh_floor(self.floor)
+                else:
+                    log.info(f"未识别到当前镜牢楼层，保留当前楼层: {self.floor}")
         else:
             log.info("未识别到当前镜牢楼层")
         auto.mouse_click_blank()
